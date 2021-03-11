@@ -16,27 +16,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PointValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
-import org.apache.lucene.search.BooleanClause;
-import org.apache.lucene.search.BoostQuery;
-import org.apache.lucene.search.Collector;
-import org.apache.lucene.search.ConstantScoreQuery;
-import org.apache.lucene.search.DocValuesFieldExistsQuery;
-import org.apache.lucene.search.FieldDoc;
-import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.MultiCollector;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.QueryVisitor;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.Sort;
-import org.apache.lucene.search.SortField;
-import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TopDocsCollector;
-import org.apache.lucene.search.TopFieldCollector;
-import org.apache.lucene.search.TopFieldDocs;
-import org.apache.lucene.search.TopScoreDocCollector;
-import org.apache.lucene.search.TotalHitCountCollector;
-import org.apache.lucene.search.TotalHits;
+import org.apache.lucene.search.*;
 import org.apache.lucene.search.grouping.CollapseTopFieldDocs;
 import org.apache.lucene.search.grouping.CollapsingTopDocsCollector;
 import org.apache.lucene.search.spans.SpanQuery;
@@ -158,12 +138,16 @@ abstract class TopDocsCollectorContext extends QueryCollectorContext {
 
         /**
          * Ctr
+         * @param indexSearcher The index searcher
+         * @param query The query
          * @param collapseContext The collapsing context
          * @param sortAndFormats The query sort
          * @param numHits The number of collapsed top hits to retrieve.
          * @param trackMaxScore True if max score should be tracked
          */
-        private CollapsingTopDocsCollectorContext(CollapseContext collapseContext,
+        private CollapsingTopDocsCollectorContext(IndexSearcher indexSearcher,
+                                                  Query query,
+                                                  CollapseContext collapseContext,
                                                   @Nullable SortAndFormats sortAndFormats,
                                                   int numHits,
                                                   boolean trackMaxScore) {
@@ -172,7 +156,7 @@ abstract class TopDocsCollectorContext extends QueryCollectorContext {
             assert collapseContext != null;
             Sort sort = sortAndFormats == null ? Sort.RELEVANCE : sortAndFormats.sort;
             this.sortFmt = sortAndFormats == null ? new DocValueFormat[] { DocValueFormat.RAW } : sortAndFormats.formats;
-            this.topDocsCollector = collapseContext.createTopDocs(sort, numHits);
+            this.topDocsCollector = collapseContext.createTopDocs(indexSearcher, query, sort, numHits);
 
             MaxScoreCollector maxScoreCollector;
             if (trackMaxScore) {
@@ -436,7 +420,8 @@ abstract class TopDocsCollectorContext extends QueryCollectorContext {
         } else if (searchContext.collapse() != null) {
             boolean trackScores = searchContext.sort() == null ? true : searchContext.trackScores();
             int numDocs = Math.min(searchContext.from() + searchContext.size(), totalNumDocs);
-            return new CollapsingTopDocsCollectorContext(searchContext.collapse(), searchContext.sort(), numDocs, trackScores);
+            return new CollapsingTopDocsCollectorContext(searchContext.searcher(), searchContext.query(),
+                searchContext.collapse(), searchContext.sort(), numDocs, trackScores);
         } else {
             int numDocs = Math.min(searchContext.from() + searchContext.size(), totalNumDocs);
             final boolean rescore = searchContext.rescore().isEmpty() == false;

@@ -24,6 +24,8 @@ import org.elasticsearch.index.mapper.MappedFieldType;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * Utility class that ensures that a single collapse key is extracted per document.
@@ -35,9 +37,17 @@ abstract class CollapsingDocValuesSource<T> extends GroupSelector<T> {
         this.field = field;
     }
 
+    protected Set<String> secondPassKeys;
+    protected int docBase;
+
     @Override
     public void setGroups(Collection<SearchGroup<T>> groups) {
-        throw new UnsupportedOperationException();
+        secondPassKeys = new HashSet<>();
+
+        for (SearchGroup<T> group : groups) {
+            CollectedSearchGroup<T> collectedGroup = (CollectedSearchGroup<T>) group;
+            secondPassKeys.add(collectedGroup.groupValue + ";" + collectedGroup.topDoc);
+        }
     }
 
     /**
@@ -58,7 +68,13 @@ abstract class CollapsingDocValuesSource<T> extends GroupSelector<T> {
             if (values.advanceExact(doc)) {
                 hasValue = true;
                 value = values.longValue();
-                return State.ACCEPT;
+
+                if (secondPassKeys == null) {
+                    return State.ACCEPT;
+                }
+
+                String secondPassKey = value + ";" + (docBase + doc);
+                return secondPassKeys.contains(secondPassKey) ? State.ACCEPT : State.SKIP;
             } else {
                 hasValue = false;
                 return State.SKIP;
@@ -77,6 +93,7 @@ abstract class CollapsingDocValuesSource<T> extends GroupSelector<T> {
 
         @Override
         public void setNextReader(LeafReaderContext readerContext) throws IOException {
+            docBase = readerContext.docBase;
             LeafReader reader = readerContext.reader();
             DocValuesType type = getDocValuesType(reader, field);
             if (type == null || type == DocValuesType.NONE) {
@@ -151,9 +168,14 @@ abstract class CollapsingDocValuesSource<T> extends GroupSelector<T> {
                 throws IOException {
             if (values.advanceExact(doc)) {
                 ord = values.ordValue();
-                return State.ACCEPT;
+
+                if (secondPassKeys == null) {
+                    return State.ACCEPT;
+                }
+
+                String secondPassKey = currentValue().toString() + ";" + (docBase + doc);
+                return secondPassKeys.contains(secondPassKey) ? State.ACCEPT : State.SKIP;
             } else {
-                ord = -1;
                 return State.SKIP;
             }
         }
@@ -183,6 +205,7 @@ abstract class CollapsingDocValuesSource<T> extends GroupSelector<T> {
 
         @Override
         public void setNextReader(LeafReaderContext readerContext) throws IOException {
+            docBase = readerContext.docBase;
             LeafReader reader = readerContext.reader();
             DocValuesType type = getDocValuesType(reader, field);
             if (type == null || type == DocValuesType.NONE) {
